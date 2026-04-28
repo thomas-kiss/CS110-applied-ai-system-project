@@ -110,18 +110,21 @@ if song_id in liked_ids    →  score × 1.2  (capped at 1.0)
 
 ---
 
-### Scoring → Ranking
+### Scoring vs. Ranking
 
-The scoring rule evaluates **one song in isolation**.
-The ranking layer then sorts all scores and applies list-level rules
-(e.g. no duplicate artists in the top 5) before producing the final
-recommendation list. These are intentionally separate steps — a song
-can score highly but be displaced by a diversity rule, and the two
-reasons for exclusion stay debuggable independently.
-Song features  ──┐
-├──▶  similarity  ──▶  weighted sum  ──▶  behavioral adjust  ──▶  score
-User targets   ──┘
-[score₁, score₂, ... scoreₙ]  ──▶  sort  ──▶  diversity filter  ──▶  top N recommendations
+The scoring rule evaluates **one song in isolation**. The ranking layer then sorts all scores and applies list-level rules — for example, no duplicate artists in the top 5 — before producing the final recommendation list. These are intentionally separate steps. A song can score highly but be displaced by a diversity rule, and the two reasons for exclusion stay independently debuggable.
+
+**Per-song scoring:**
+
+1. Compute per-feature similarity between song and user profile
+2. Multiply each similarity by its weight and sum to a raw score
+3. Apply behavioral adjustment (liked / skipped history)
+
+**List-level ranking:**
+
+4. Collect all scores and sort descending
+5. Apply diversity filter (e.g. no duplicate artists in top 5)
+6. Return top N recommendations
 
 ---
 
