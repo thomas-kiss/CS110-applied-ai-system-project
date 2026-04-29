@@ -1,14 +1,12 @@
 """
-Command line runner for the Music Recommender Simulation.
+Command line runner for the Music Recommender.
 
-This file helps you quickly run and test your recommender.
-
-You will implement the functions in recommender.py:
-- load_songs
-- score_song
-- recommend_songs
+Usage:
+    python src/main.py           # original rule-based recommender (hardcoded profile)
+    python src/main.py --agent   # AI agent: natural language → recommendations
 """
 
+import argparse
 from recommender import load_songs, recommend_songs
 
 
@@ -82,5 +80,62 @@ def main() -> None:
         print()
 
 
+def main_agent() -> None:
+    from agent import refine_profile, run_agent
+    from recommender import recommend_songs
+
+    print("\nMusic Recommender — AI Agent")
+    print("─" * 40)
+    query = input("Describe what you want to listen to: ").strip()
+    if not query:
+        print("No input provided.")
+        return
+
+    # Stage 1 — full pipeline: input guardrail → RAG → profile extraction →
+    # genre filter → scoring → output guardrail → retry if confidence < 0.6
+    print("\nSearching catalog...")
+    result = run_agent(query, k=100)
+
+    if "error" in result:
+        print(f"\nRejected: {result['error']}")
+        return
+
+    print(f"\nTop 10 based on \"{query}\":")
+    print(f"Confidence: {result['confidence']:.2f}  |  Attempts: {result['attempts']}")
+    print("─" * 40)
+    for i, (song, score, _) in enumerate(result["results"][:10], 1):
+        print(f"{i:2}. {song['title']} — {song['artist']}")
+        print(f"    {song['genre']} | {song['mood']} | score: {score:.2f}")
+
+    # Stage 2 — optional refinement: Gemini updates the profile,
+    # re-scores the same 100 candidates (no new search, one Gemini call)
+    print("\nRefine your results (e.g. 'more upbeat', 'less acoustic', 'faster tempo')")
+    refinement = input("Refinement (or press Enter to finish): ").strip()
+    if not refinement:
+        return
+
+    print("\nRefining...")
+    refined_profile = refine_profile(result["profile_used"], refinement)
+    pool = [song for song, _, _ in result["results"]]
+    pool += [s for s in result["candidates"] if (s["title"], s["artist"]) not in
+             {(r[0]["title"], r[0]["artist"]) for r in result["results"]}]
+    final = recommend_songs(refined_profile, pool, k=10)
+
+    print("\nTop 10 refined results:")
+    print("─" * 40)
+    for i, (song, score, explanation) in enumerate(final, 1):
+        print(f"{i:2}. {song['title']} — {song['artist']}")
+        print(f"    {song['genre']} | {song['mood']} | score: {score:.2f}")
+        print(f"    {explanation}")
+        print()
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--agent", action="store_true", help="Use AI agent with natural language input")
+    args = parser.parse_args()
+
+    if args.agent:
+        main_agent()
+    else:
+        main()

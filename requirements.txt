@@ -1,3 +1,7 @@
 pandas
 pytest
 streamlit
+sentence-transformers>=3.0.0,<5.0.0
+google-genai>=1.0.0
+python-dotenv
+numpy<2

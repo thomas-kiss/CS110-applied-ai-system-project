@@ -1,82 +1,119 @@
-# Model Card: Music Recommender Simulation
+# Model Card: VibeMatch AI
 
 ## 1. Model Name
 
-**VibeMatch 1.0**
+**VibeMatch AI — Semantic Music Recommender**
+*(Extended from VibeMatch 1.0, CodePath Ai110 Module 1–3)*
 
 ---
 
 ## 2. Intended Use
 
-VibeMatch suggests up to five songs from a 20-track catalog based on a user's stated audio preferences and listening history. It is designed for classroom exploration of how content-based recommendation systems work, not for use with real listeners or a production catalog. It assumes the user can describe their taste numerically (e.g., preferred energy level, acousticness) and that their liked and skipped history is available.
+VibeMatch AI recommends songs from an 81,000-track Spotify catalog based on a plain-English description of what the user wants to hear. It is designed as an applied AI portfolio project demonstrating retrieval-augmented generation, agentic orchestration, and reliability guardrails. It is suitable for personal use and classroom demonstration. It is not designed for production deployment, does not handle user authentication, and makes no guarantees about catalog completeness or content appropriateness.
 
 ---
 
-## 3. How the Model Works
+## 3. How the System Works
 
-Imagine you told a friend: "I like upbeat, produced-sounding songs around 120 BPM — not too mellow, not too acoustic." A good friend would mentally scan their music library and hand you songs that fit that description. VibeMatch does the same thing, but with math.
+When a user types "calm acoustic songs for late night studying," the system does the following:
 
-For every song in the catalog, the system measures how close that song is to your stated preferences across seven dimensions: energy, emotional tone (valence), how acoustic or produced it sounds, how danceable it is, tempo, mood, and genre. Songs that are close to your preferences score near 1.0; songs that are far away score near 0.0.
+**Retrieval (RAG):** The query is encoded into a 384-dimensional vector using `sentence-transformers/all-MiniLM-L6-v2`, a lightweight local model. That vector is compared against pre-computed embeddings for every song in the catalog using cosine similarity. The 100 most semantically similar songs become the candidate pool.
 
-The dimensions do not all count equally. Energy and emotional tone matter most because research from major streaming platforms shows these two features best predict whether a listener will enjoy a song. Genre matters least — partly because the other features already imply it, and partly because genre labels are often too broad to be useful on their own.
+**Profile Extraction:** Gemini (`gemma-3-27b-it`) reads the query and outputs a structured JSON profile — preferred genre, mood, energy level, valence, danceability, acousticness, and tempo. Few-shot examples in the prompt calibrate Gemini's output to the music domain. This profile describes what the user wants numerically, which the scoring engine can act on.
 
-Finally, the system checks your history. If you previously liked a song, its score gets a small boost. If you skipped it, its score gets cut in half. If a song is in both your liked and skipped list, the skip wins — but the system now tells you that happened instead of silently ignoring the conflict.
+**Scoring (original engine):** The same `score_song()` function from Module 1 scores each of the 100 candidates against the extracted profile using a weighted feature sum. Energy (25%) and valence (20%) carry the most weight, reflecting Spotify's published research on which audio features best predict listener satisfaction. Genre carries the least weight (5%) because the continuous features already encode genre implicitly.
+
+**Output Guardrail:** Gemini reviews the top results and scores confidence from 0.0 to 1.0. If confidence is below 0.6, the agent appends the guardrail's feedback to the query and retries the full pipeline (max 2 attempts).
+
+**Refinement:** The user may optionally describe a further adjustment ("more upbeat," "less acoustic"). Gemini updates the existing profile to reflect the refinement, and the scoring engine re-ranks the same 100 candidates. No new search is performed.
 
 ---
 
 ## 4. Data
 
-The catalog contains 20 songs stored in `data/songs.csv`. Each song was hand-authored with realistic audio feature values across 11 genres: pop, lo-fi, rock, ambient, jazz, synthwave, hip-hop, R&B, classical, country, metal, EDM, reggae, latin, folk, and blues. Moods covered include happy, chill, intense, focused, relaxed, moody, melancholic, romantic, peaceful, nostalgic, angry, energetic, uplifting, and sad.
+**Catalog:** 81,343 tracks sourced from the [Kaggle Spotify Tracks Dataset](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset). After deduplication by title and artist, the catalog spans 113 genres.
 
-The catalog was expanded from 10 to 20 songs during development to improve genre and mood coverage. However, it is still small and hand-curated, which means it reflects the taste assumptions of whoever built it. Genres like K-pop, Afrobeats, classical Indian, and most non-English-language music are absent entirely.
+**Audio features used:** energy, valence, danceability, acousticness, tempo\_bpm, genre. All continuous features are provided by Spotify's audio analysis API and stored in the Kaggle dataset.
 
----
+**Mood derivation:** The Kaggle dataset has no mood column. Mood is derived from energy and valence using threshold rules:
 
-## 5. Strengths
+| Rule | Mood |
+|---|---|
+| energy > 0.7 and valence > 0.7 | happy |
+| energy > 0.7 and valence < 0.4 | intense |
+| energy < 0.4 and valence > 0.6 | chill |
+| energy < 0.4 and valence < 0.4 | melancholic |
+| otherwise | neutral |
 
-- **Transparent scoring.** Every recommendation comes with a plain-language explanation of why it was chosen (e.g., "energy is close to your preference," "matches your preferred mood"). There is no black box.
-- **Behavioral signals work correctly.** Liked songs get a meaningful boost; skipped songs are penalized. Conflicts between the two are now surfaced rather than silently resolved.
-- **Feature weights are Spotify-informed.** Energy and valence are the two features most predictive of listener satisfaction according to Spotify's own published research. The weights reflect that.
-- **Well-suited for users with clear audio preferences.** When a user's continuous feature preferences closely match a song's actual audio profile — as with the baseline Alex profile — the top results feel intuitively correct.
+53% of tracks fall into "neutral" because most songs have mid-range energy and valence. This is a known limitation.
 
----
-
-## 6. Limitations and Bias
-
-- **Genre labels carry almost no weight.** Genre is only 5% of the score. A user who says they want pop but whose continuous preferences point toward folk will get folk recommendations with no explanation that their stated genre preference was overruled. This is intentional and Spotify-aligned, but can feel like the system ignored the user.
-- **No collaborative filtering.** The system cannot learn from what similar users enjoy. It has no concept of "people who liked X also liked Y."
-- **Static, recency-blind history.** A skip from six months ago counts exactly the same as a skip from yesterday. Real platforms weight recent signals more heavily.
-- **Underrepresented genres and moods.** With 20 songs across 16+ genres, most genres have one or two representatives. Users whose taste lives outside pop, lo-fi, and rock will find poor matches.
-- **No lyric or language awareness.** Two songs with identical audio features but different languages, themes, or cultural origins are treated as equivalent. A user who only listens to Spanish-language music gets no special handling.
-- **Catalog bias.** The 20 songs were selected by the developers, which means the catalog implicitly reflects certain cultural and genre assumptions. Users outside those assumptions are underserved by design.
+**Embeddings:** Song text is formatted as `"{title} by {artist}. Genre: {genre}. Mood: {mood}. Energy: {energy}, Valence: {valence}."` and encoded with `all-MiniLM-L6-v2` (384 dimensions, ~175MB for the full catalog).
 
 ---
 
-## 7. Evaluation
+## 5. AI Components
 
-Three user profiles were tested and their outputs reviewed manually:
+| Component | Model | Purpose | Mock available |
+|---|---|---|---|
+| Input guardrail | `gemma-3-27b-it` | Reject non-music queries | Yes |
+| Profile extraction | `gemma-3-27b-it` | NL query → JSON UserProfile | Yes |
+| Profile refinement | `gemma-3-27b-it` | Update profile from follow-up | Yes |
+| Output guardrail | `gemma-3-27b-it` | Score result quality 0–1 | Yes |
+| Semantic search | `all-MiniLM-L6-v2` | Encode query and catalog | No (local) |
 
-**Alex (baseline)** — A pop/happy listener with moderately high energy preferences and a history of liking two specific songs. Rooftop Lights and Fuego Lento both scored 1.00 after the liked-song boost, and the remaining three results were all energetic, produced-sounding tracks. Results matched expectations.
-
-**Jordan (adversarial — genre vs. features)** — Declared pop/happy but set all continuous preferences in the opposite direction (quiet, acoustic, slow, sad). The top five results were all folk, classical, and ambient tracks — zero pop songs appeared. This confirmed the weight structure is working as intended and is consistent with how Spotify handles genre vs. audio similarity.
-
-**Riley (adversarial — behavioral conflict)** — The same two song IDs appeared in both `liked_ids` and `skipped_ids`. Before the bug fix, the liked signal was silently discarded. After the fix, the conflict appears in the reason string. Both conflicted songs were excluded from the top five, which is the correct outcome.
-
-A pytest suite of 13 unit tests covers liked/skipped penalties and boosts, score capping, sort order, result count, and the behavioral conflict case.
-
----
-
-## 8. Future Work
-
-- **Recency weighting for behavioral signals.** More recent skips and likes should count more than older ones. A simple decay function on the `liked_ids` and `skipped_ids` signals would significantly improve the model for returning users.
-- **Collaborative filtering.** Adding a "users who liked this also liked" layer would let the system surface songs a user would not have described in their preferences but would genuinely enjoy.
-- **Larger and more diverse catalog.** Twenty songs is a proof of concept. A real catalog would need thousands of tracks with better genre and cultural coverage.
-- **Dynamic weight learning.** Instead of fixed weights, the system could adjust how much it trusts each feature based on a user's history — e.g., if a user consistently skips high-acousticness songs, that feature's weight could increase automatically.
-- **Diversity enforcement.** The current ranking can return multiple songs by the same artist. A de-duplication pass on artist names in the top K would improve result variety.
-- **Conflict resolution policy.** When a song appears in both `liked_ids` and `skipped_ids`, skip currently always wins. A better policy would use the timestamp of each signal so the most recent one wins.
+All Gemini calls accept `mock=True` for zero-cost testing. The scoring engine (`score_song()`) is deterministic Python — no model involved.
 
 ---
 
-## 9. Personal Reflection
+## 6. Strengths
 
-The most surprising thing was how little the genre label mattered once continuous features were in play. A user who ticks "pop" on their profile can end up with folk recommendations and the system is technically correct — their audio preferences describe a folk listener. That gap between what a user says and what the model infers is not a bug, but it reveals something important: recommenders make assumptions on behalf of users, and those assumptions are invisible unless you specifically go looking for them. Building this system made me look at Spotify's "Discover Weekly" differently. The recommendations feel personal, but they are the output of weights someone else chose on features someone else defined — and the system will never tell you when your stated preference was quietly overruled.
+- **Transparent scoring.** Every recommendation includes a plain-language explanation of why it was chosen ("energy is close to your preference," "matches your preferred genre"). No black box.
+- **Natural language input.** Users describe what they want in plain English instead of specifying numeric audio features. Gemini handles the translation.
+- **Agentic reliability.** The output guardrail catches bad result sets and triggers a retry rather than silently returning poor matches. The confidence score is surfaced to the user.
+- **Two-stage refinement.** Users can narrow results with a follow-up prompt without re-running the expensive semantic search step.
+- **Fully testable without API calls.** All Gemini interactions are mockable. The 31-test suite runs in seconds with zero API cost.
+- **Large, real catalog.** 81k Spotify tracks with verified audio features provides genuine genre and mood diversity.
+
+---
+
+## 7. Limitations and Bias
+
+- **Mood labels are crude.** Five derived mood categories cannot capture real emotional nuance. A blues song and a slow ambient track both land in "melancholic" despite feeling completely different.
+- **Genre label inconsistency.** The Kaggle dataset uses 113 genre strings, but Gemini may extract genre names that don't exactly match catalog strings (e.g., "rap" vs. "hip-hop"). The genre pre-filter fails silently when strings don't match.
+- **No popularity or quality signal.** A well-known classic and an obscure track with identical audio features score identically. The system cannot distinguish cultural significance.
+- **No lyrics, language, or cultural awareness.** A user asking for Spanish-language music or explicitly lyrical hip-hop gets no special handling.
+- **Static catalog.** The catalog is a snapshot from one Kaggle download. New releases are not included.
+- **No user history persistence.** Liked and skipped signals are not saved between sessions. Every conversation starts from scratch.
+- **Gemini profile hallucination risk.** If Gemini produces extreme values (energy = 2.0) or omits fields, defaults are applied silently. The user is not told their query was partially misunderstood.
+
+---
+
+## 8. Evaluation
+
+**Unit tests:** 31 tests covering scoring math, pipeline integration, guardrail pass/fail, retry behavior, and error handling. All pass with zero API calls in mock mode.
+
+**Evaluation harness:** 10 predefined query fixtures run in mock mode. 10/10 passed (≥5 results, confidence ≥0.6). Average confidence: 0.85.
+
+**Live testing observations:**
+
+- Before the genre pre-filter was added, "gangsta rap for a late night drive" returned metal and rock songs. The output guardrail scored 0.20 confidence — correctly identifying the mismatch — and the retry loop used the flag message to refine the query. The guardrail worked as designed.
+- After the genre pre-filter was added, genre-specific queries consistently return genre-appropriate results.
+- Refinement prompts ("more upbeat," "less acoustic," "faster tempo") produce measurably different profiles and result sets, confirming the refinement pipeline works end-to-end.
+
+---
+
+## 9. Future Work
+
+- **Integrate Spotify API.** Replace the static Kaggle snapshot with live Spotify data. This enables real-time catalog updates, popularity signals, and user history via OAuth.
+- **Persist user history.** Save liked/skipped signals to a local file between sessions so the profile improves with use.
+- **Improve mood labels.** Replace threshold-derived mood with a small classifier trained on user annotations, or use Spotify's own mood/valence clusters.
+- **Handle genre vocabulary mismatches.** Build a mapping between common genre synonyms (rap → hip-hop, r&b → soul, etc.) so the genre filter is robust to Gemini's vocabulary choices.
+- **Add popularity weighting.** Weight `score_song()` output by a logarithmic popularity factor to surface well-regarded tracks over obscure ones when scores are close.
+
+---
+
+## 10. Reflection
+
+The most instructive moment in building this system was discovering that the output guardrail correctly identified bad recommendations before I had added the genre pre-filter. The system returned metal songs for a hip-hop query, scored them at 0.20 confidence, and flagged the genre mismatch — all automatically. That was the guardrail working exactly as intended: not preventing bad results from being generated, but catching them before they reach the user and giving the agent enough information to try again.
+
+This revealed something important about how to think about AI reliability. The goal is not to make the AI infallible on the first try — that's not achievable for a system that reasons over natural language. The goal is to make failures visible and recoverable. The confidence score makes failure explicit. The retry loop makes it recoverable. The explanation string makes it debuggable. Building those three things together is what distinguishes a reliable AI system from one that just happens to work most of the time.

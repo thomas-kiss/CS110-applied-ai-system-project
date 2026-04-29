@@ -137,7 +137,12 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tup
     Score all songs and return the top-k as (song, score, explanation) tuples
     """
     scored = []
+    seen = set()
     for song in songs:
+        key = (song["title"].lower(), song["artist"].lower())
+        if key in seen:
+            continue
+        seen.add(key)
         s, reasons = score_song(user_prefs, song)
         explanation = "; ".join(reasons) if reasons else "no strong match"
         scored.append((song, s, explanation))
