@@ -21,3 +21,5 @@ venv/
 data/kaggle_raw.csv
 data/kaggle_tracks.csv
 data/embeddings.npy
+.venv/
+data/embeddings.npy
