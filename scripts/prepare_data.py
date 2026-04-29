@@ -12,21 +12,6 @@ import argparse
 import pandas as pd
 
 
-MOOD_RULES = [
-    (lambda e, v: e > 0.7 and v > 0.7, "happy"),
-    (lambda e, v: e > 0.7 and v < 0.4, "intense"),
-    (lambda e, v: e < 0.4 and v > 0.6, "chill"),
-    (lambda e, v: e < 0.4 and v < 0.4, "melancholic"),
-]
-
-
-def derive_mood(energy: float, valence: float) -> str:
-    for rule, label in MOOD_RULES:
-        if rule(energy, valence):
-            return label
-    return "neutral"
-
-
 def prepare(input_path: str, output_path: str) -> None:
     df = pd.read_csv(input_path)
 
@@ -51,18 +36,12 @@ def prepare(input_path: str, output_path: str) -> None:
     # Drop exact duplicate title+artist pairs
     df = df.drop_duplicates(subset=["title", "artist"]).reset_index(drop=True)
 
-    # Derive mood column
-    df["mood"] = df.apply(
-        lambda r: derive_mood(r["energy"], r["valence"]), axis=1
-    )
-
     # Add sequential id
     df.insert(0, "id", range(1, len(df) + 1))
 
     df.to_csv(output_path, index=False)
     print(f"Saved {len(df)} tracks to {output_path}")
     print(f"Genres represented: {df['genre'].nunique()}")
-    print(f"Mood distribution:\n{df['mood'].value_counts().to_string()}")
 
 
 if __name__ == "__main__":

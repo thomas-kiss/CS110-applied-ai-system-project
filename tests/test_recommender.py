@@ -1,20 +1,20 @@
 from src.recommender import score_song, recommend_songs
 
 
-def make_song(id=1, genre="pop", mood="happy", energy=0.5, valence=0.5,
+def make_song(id=1, genre="pop", energy=0.5, valence=0.5,
               acousticness=0.5, danceability=0.5, tempo_bpm=110):
     return {
-        "id": id, "genre": genre, "mood": mood, "energy": energy,
+        "id": id, "genre": genre, "energy": energy,
         "valence": valence, "acousticness": acousticness,
         "danceability": danceability, "tempo_bpm": tempo_bpm,
     }
 
 
-def make_prefs(genre="pop", mood="happy", energy=0.5, valence=0.5,
+def make_prefs(genre="pop", energy=0.5, valence=0.5,
                acousticness=0.5, danceability=0.5, tempo_bpm=110,
                liked_ids=None, skipped_ids=None):
     return {
-        "preferred_genre": genre, "preferred_mood": mood,
+        "preferred_genre": genre,
         "preferred_energy": energy, "preferred_valence": valence,
         "preferred_acousticness": acousticness,
         "preferred_danceability": danceability,
@@ -35,20 +35,10 @@ def test_genre_match_scores_higher_than_mismatch():
     assert score_match > score_miss
 
 
-def test_mood_match_scores_higher_than_mismatch():
-    prefs = make_prefs(mood="happy")
-    match = make_song(mood="happy")
-    miss = make_song(mood="sad")
-    score_match, _ = score_song(prefs, match)
-    score_miss, _ = score_song(prefs, miss)
-    assert score_match > score_miss
-
-
 def test_liked_song_gets_score_boost():
-    # Use a partial match so base score < 1.0 and the boost is observable
-    song = make_song(id=1, genre="lofi", mood="sad")
-    prefs_no_like = make_prefs(genre="pop", mood="happy")
-    prefs_liked = make_prefs(genre="pop", mood="happy", liked_ids=[1])
+    song = make_song(id=1, genre="lofi")
+    prefs_no_like = make_prefs(genre="pop")
+    prefs_liked = make_prefs(genre="pop", liked_ids=[1])
 
     score_base, _ = score_song(prefs_no_like, song)
     score_boosted, _ = score_song(prefs_liked, song)
@@ -58,8 +48,7 @@ def test_liked_song_gets_score_boost():
 
 def test_liked_song_score_capped_at_one():
     prefs = make_prefs(liked_ids=[1])
-    # Perfect match on all features — boost would exceed 1.0 without the cap
-    song = make_song(id=1, genre="pop", mood="happy", energy=0.5, valence=0.5,
+    song = make_song(id=1, genre="pop", energy=0.5, valence=0.5,
                      acousticness=0.5, danceability=0.5, tempo_bpm=110)
     score, _ = score_song(prefs, song)
     assert score <= 1.0
@@ -86,15 +75,15 @@ def test_skipped_penalty_halves_score():
 
 
 def test_score_song_always_returns_reasons():
-    prefs = make_prefs(genre="classical", mood="melancholic")
-    song = make_song(genre="pop", mood="happy")
+    prefs = make_prefs(genre="classical")
+    song = make_song(genre="pop")
     _, reasons = score_song(prefs, song)
     assert len(reasons) > 0
 
 
 def test_perfect_feature_match_scores_near_one():
     prefs = make_prefs()
-    song = make_song()  # identical defaults
+    song = make_song()
     score, _ = score_song(prefs, song)
     assert score >= 0.9
 
@@ -102,11 +91,11 @@ def test_perfect_feature_match_scores_near_one():
 # --- recommend_songs ---
 
 def test_recommend_songs_sorted_descending():
-    prefs = make_prefs(genre="pop", mood="happy")
+    prefs = make_prefs(genre="pop")
     songs = [
-        make_song(id=1, genre="lofi", mood="sad"),
-        make_song(id=2, genre="pop", mood="happy"),
-        make_song(id=3, genre="pop", mood="sad"),
+        make_song(id=1, genre="lofi"),
+        make_song(id=2, genre="pop"),
+        make_song(id=3, genre="pop", energy=0.3),
     ]
     results = recommend_songs(prefs, songs, k=3)
     scores = [score for _, score, _ in results]
@@ -128,10 +117,10 @@ def test_recommend_songs_k_larger_than_catalog():
 
 
 def test_recommend_songs_best_match_is_first():
-    prefs = make_prefs(genre="pop", mood="happy")
+    prefs = make_prefs(genre="pop")
     songs = [
-        make_song(id=1, genre="lofi", mood="sad"),
-        make_song(id=2, genre="pop", mood="happy"),
+        make_song(id=1, genre="lofi"),
+        make_song(id=2, genre="pop"),
     ]
     results = recommend_songs(prefs, songs, k=2)
     assert results[0][0]["id"] == 2
@@ -140,11 +129,8 @@ def test_recommend_songs_best_match_is_first():
 # --- Adversarial / edge-case tests ---
 
 def test_liked_and_skipped_conflict_surfaces_both_signals():
-    # Same song ID in both liked_ids and skipped_ids.
-    # Skip wins (score * 0.5), but the reason string must acknowledge the conflict
-    # so the caller knows the like was on record and didn't just silently vanish.
-    song  = make_song(id=1, genre="lofi", mood="sad")
-    prefs = make_prefs(genre="pop", mood="happy", liked_ids=[1], skipped_ids=[1])
+    song = make_song(id=1, genre="lofi")
+    prefs = make_prefs(genre="pop", liked_ids=[1], skipped_ids=[1])
     _, reasons = score_song(prefs, song)
     reason_text = " ".join(reasons)
     assert "overrides prior like" in reason_text, "conflict between liked and skipped was not surfaced"

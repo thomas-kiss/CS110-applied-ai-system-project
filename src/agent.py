@@ -5,7 +5,7 @@ Flow (up to 2 attempts):
   1. validate_input()       — guardrail: reject non-music queries
   2. embedder.search()      — RAG: retrieve 100 semantic candidates
   3. extract_user_profile() — Gemini: parse natural language → UserProfile dict
-  4. recommend_songs()      — existing scoring engine: rerank to top-5
+  4. recommend_songs()      — existing scoring engine: rerank to top-k
   5. validate_output()      — guardrail: score result quality (0–1)
   6. retry if confidence < 0.6, else return results
 
@@ -33,6 +33,87 @@ DATA_EMB = "data/embeddings.npy"
 CONFIDENCE_THRESHOLD = 0.6
 MAX_ATTEMPTS = 2
 
+# ---------------------------------------------------------------------------
+# Preset profiles — selected from a menu, no Gemini call needed
+# ---------------------------------------------------------------------------
+PRESET_PROFILES = {
+    "1": {
+        "name": "Late Night Drive",
+        "description": "Moody, mid-tempo tracks for cruising after dark",
+        "preferred_genre": "hip-hop",
+        "preferred_energy": 0.60,
+        "preferred_valence": 0.35,
+        "preferred_danceability": 0.65,
+        "preferred_acousticness": 0.20,
+        "preferred_tempo_bpm": 95,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+    "2": {
+        "name": "Gym / Workout",
+        "description": "High-energy, driving tracks to push through a hard session",
+        "preferred_genre": "Techno",
+        "preferred_energy": 0.78,
+        "preferred_valence": 0.50,
+        "preferred_danceability": 0.82,
+        "preferred_acousticness": 0.05,
+        "preferred_tempo_bpm": 120,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+    "3": {
+        "name": "Focus / Study",
+        "description": "Calm, low-distraction background music for deep work",
+        "preferred_genre": "classical",
+        "preferred_energy": 0.25,
+        "preferred_valence": 0.55,
+        "preferred_danceability": 0.25,
+        "preferred_acousticness": 0.80,
+        "preferred_tempo_bpm": 72,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+    "4": {
+        "name": "Party Mode",
+        "description": "Upbeat, danceable bangers to keep the energy high",
+        "preferred_genre": "dance",
+        "preferred_energy": 0.88,
+        "preferred_valence": 0.85,
+        "preferred_danceability": 0.92,
+        "preferred_acousticness": 0.05,
+        "preferred_tempo_bpm": 128,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+    "5": {
+        "name": "Rainy Day / Melancholy",
+        "description": "Soft, introspective songs for a quiet, reflective mood",
+        "preferred_genre": "indie",
+        "preferred_energy": 0.30,
+        "preferred_valence": 0.25,
+        "preferred_danceability": 0.35,
+        "preferred_acousticness": 0.70,
+        "preferred_tempo_bpm": 80,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+    "6": {
+        "name": "Feel-Good Classics",
+        "description": "Warm, familiar tracks with positive energy",
+        "preferred_genre": "pop",
+        "preferred_energy": 0.72,
+        "preferred_valence": 0.80,
+        "preferred_danceability": 0.70,
+        "preferred_acousticness": 0.25,
+        "preferred_tempo_bpm": 115,
+        "liked_ids": [],
+        "skipped_ids": [],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
 _PROFILE_PROMPT = """\
 Extract a music preference profile from the user's request.
 Return JSON only — no explanation outside the JSON.
@@ -40,25 +121,25 @@ Return JSON only — no explanation outside the JSON.
 Examples:
 
 Request: "upbeat pop for working out"
-Profile: {{"preferred_genre": "pop", "preferred_mood": "happy", \
+Profile: {{"preferred_genre": "pop", \
 "preferred_energy": 0.85, "preferred_valence": 0.75, \
 "preferred_danceability": 0.80, "preferred_acousticness": 0.15, \
 "preferred_tempo_bpm": 130}}
 
 Request: "calm acoustic songs for studying late at night"
-Profile: {{"preferred_genre": "acoustic", "preferred_mood": "chill", \
+Profile: {{"preferred_genre": "acoustic", \
 "preferred_energy": 0.25, "preferred_valence": 0.55, \
 "preferred_danceability": 0.35, "preferred_acousticness": 0.85, \
 "preferred_tempo_bpm": 75}}
 
 Request: "melancholic indie songs for a rainy day"
-Profile: {{"preferred_genre": "indie", "preferred_mood": "melancholic", \
+Profile: {{"preferred_genre": "indie", \
 "preferred_energy": 0.35, "preferred_valence": 0.25, \
 "preferred_danceability": 0.40, "preferred_acousticness": 0.60, \
 "preferred_tempo_bpm": 90}}
 
 Request: "high-energy dance tracks for a house party"
-Profile: {{"preferred_genre": "dance", "preferred_mood": "happy", \
+Profile: {{"preferred_genre": "dance", \
 "preferred_energy": 0.90, "preferred_valence": 0.80, \
 "preferred_danceability": 0.92, "preferred_acousticness": 0.05, \
 "preferred_tempo_bpm": 128}}
@@ -69,7 +150,6 @@ Profile:"""
 
 _MOCK_PROFILE = {
     "preferred_genre": "pop",
-    "preferred_mood": "happy",
     "preferred_energy": 0.70,
     "preferred_valence": 0.70,
     "preferred_danceability": 0.65,
@@ -127,9 +207,8 @@ def refine_profile(original_profile: dict, refinement: str, mock: bool = False) 
         for key, val in original_profile.items():
             updated.setdefault(key, val)
         logger.info(
-            "Profile refined | genre=%s mood=%s energy=%.2f",
+            "Profile refined | genre=%s energy=%.2f",
             updated["preferred_genre"],
-            updated["preferred_mood"],
             updated["preferred_energy"],
         )
         return updated
@@ -152,7 +231,6 @@ def extract_user_profile(query: str, mock: bool = False) -> dict:
 
         defaults = {
             "preferred_genre": "pop",
-            "preferred_mood": "neutral",
             "preferred_energy": 0.5,
             "preferred_valence": 0.5,
             "preferred_danceability": 0.5,
@@ -165,17 +243,14 @@ def extract_user_profile(query: str, mock: bool = False) -> dict:
             profile.setdefault(key, val)
 
         logger.info(
-            "Profile extracted | genre=%s mood=%s energy=%.2f",
+            "Profile extracted | genre=%s energy=%.2f",
             profile["preferred_genre"],
-            profile["preferred_mood"],
             profile["preferred_energy"],
         )
         return profile
 
     except Exception as exc:
-        logger.warning(
-            "Profile extraction failed (%s) — using defaults", exc
-        )
+        logger.warning("Profile extraction failed (%s) — using defaults", exc)
         return _MOCK_PROFILE.copy()
 
 
@@ -185,18 +260,20 @@ def run_agent(
     songs: list | None = None,
     embeddings=None,
     k: int = 5,
+    preset_profile: dict | None = None,
 ) -> dict:
     """
     Run the full recommendation pipeline for a natural-language query.
 
     Args:
-        user_query: Free-text description of what the user wants.
-        mock:       Skip all Gemini calls (for tests).
-        songs:      Pre-loaded song list (injected by tests).
-        embeddings: Pre-computed embeddings (injected by tests).
+        user_query:     Free-text description of what the user wants.
+        mock:           Skip all Gemini calls (for tests).
+        songs:          Pre-loaded song list (injected by tests).
+        embeddings:     Pre-computed embeddings (injected by tests).
+        preset_profile: If provided, skip Gemini profile extraction and use
+                        this profile directly (saves API calls for preset flow).
 
-    Returns a dict: query, results, confidence, flag, attempts,
-    profile_used.
+    Returns a dict: query, results, confidence, flag, attempts, profile_used.
     """
     logger.info("=== Agent started | query: '%s' ===", user_query)
 
@@ -218,11 +295,15 @@ def run_agent(
         logger.info("--- Attempt %d ---", attempt)
 
         candidates = search(current_query, songs, embeddings, k=100)
-        logger.info(
-            "search_songs: retrieved %d candidates", len(candidates)
-        )
+        logger.info("search_songs: retrieved %d candidates", len(candidates))
 
-        profile = extract_user_profile(current_query, mock=mock)
+        # Use preset profile on first attempt if provided; fall back to
+        # extraction on retry so the refined query can update the profile.
+        if preset_profile is not None and attempt == 1:
+            profile = preset_profile.copy()
+            logger.info("Using preset profile: %s", profile.get("name", ""))
+        else:
+            profile = extract_user_profile(current_query, mock=mock)
 
         genre = profile.get("preferred_genre", "")
         if genre:
@@ -245,9 +326,7 @@ def run_agent(
         top_score = results[0][1] if results else 0.0
         logger.info("score_songs: top score=%.4f", top_score)
 
-        confidence, flag = validate_output(
-            user_query, results, mock=mock
-        )
+        confidence, flag = validate_output(user_query, results, mock=mock)
         logger.info(
             "validate_results: confidence=%.2f | flag='%s'",
             confidence, flag,
@@ -257,9 +336,7 @@ def run_agent(
             break
 
         if attempt < MAX_ATTEMPTS:
-            logger.info(
-                "Low confidence (%.2f) — refining query", confidence
-            )
+            logger.info("Low confidence (%.2f) — refining query", confidence)
             current_query = f"{user_query} {flag}"
 
     logger.info(

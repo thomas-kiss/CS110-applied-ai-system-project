@@ -18,12 +18,12 @@ from agent import run_agent, extract_user_profile
 
 def make_song(
     id=1, title="Test Song", artist="Artist", genre="pop",
-    mood="happy", energy=0.7, valence=0.7,
+    energy=0.7, valence=0.7,
     danceability=0.7, acousticness=0.3, tempo_bpm=120.0,
 ):
     return {
         "id": id, "title": title, "artist": artist,
-        "genre": genre, "mood": mood, "energy": energy,
+        "genre": genre, "energy": energy,
         "valence": valence, "danceability": danceability,
         "acousticness": acousticness, "tempo_bpm": tempo_bpm,
     }
@@ -51,7 +51,7 @@ EMBEDDINGS = make_embeddings(len(SONGS))
 def test_extract_profile_mock_returns_required_keys():
     profile = extract_user_profile("upbeat pop", mock=True)
     required = [
-        "preferred_genre", "preferred_mood", "preferred_energy",
+        "preferred_genre", "preferred_energy",
         "preferred_valence", "preferred_danceability",
         "preferred_acousticness", "preferred_tempo_bpm",
         "liked_ids", "skipped_ids",

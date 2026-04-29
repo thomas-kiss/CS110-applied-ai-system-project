@@ -13,7 +13,6 @@ class Song:
     title: str
     artist: str
     genre: str
-    mood: str
     energy: float
     tempo_bpm: float
     valence: float
@@ -28,7 +27,6 @@ class UserProfile:
     Required by tests/test_recommender.py
     """
     favorite_genre: str
-    favorite_mood: str
     target_energy: float
     likes_acoustic: bool
 
@@ -72,37 +70,43 @@ def load_songs(csv_path: str) -> List[Dict]:
 
 
 def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
-    """Score one song against user preferences. Returns (score, reasons)."""
+    """Score one song against user preferences. Returns (score, reasons).
+
+    Weights (must sum to 1.0):
+        energy         0.28  (was 0.25; absorbed mood's 0.07 proportionally)
+        valence        0.23  (was 0.20)
+        acousticness   0.22  (was 0.20)
+        danceability   0.17  (was 0.15)
+        tempo          0.05  (was 0.08; small reduction to keep total = 1.0)
+        genre          0.05  (unchanged)
+    """
     reasons = []
 
     # Step 1 — Normalize tempo to 0–1 scale
     song_tempo_norm = (song["tempo_bpm"] - 60) / (160 - 60)
     user_tempo_norm = (user_prefs["preferred_tempo_bpm"] - 60) / (160 - 60)
 
-    # Step 2 — Per-feature similarity (continuous: 1 - distance; categorical: binary)
+    # Step 2 — Per-feature similarity
     energy_sim       = 1 - abs(song["energy"]       - user_prefs["preferred_energy"])
     valence_sim      = 1 - abs(song["valence"]      - user_prefs["preferred_valence"])
     acousticness_sim = 1 - abs(song["acousticness"] - user_prefs["preferred_acousticness"])
     danceability_sim = 1 - abs(song["danceability"] - user_prefs["preferred_danceability"])
     tempo_sim        = 1 - abs(song_tempo_norm       - user_tempo_norm)
     genre_score      = 1.0 if song["genre"] == user_prefs["preferred_genre"] else 0.0
-    mood_score       = 1.0 if song["mood"]  == user_prefs["preferred_mood"]  else 0.0
 
-    # Step 3 — Weighted sum
+    # Step 3 — Weighted sum (no mood term)
     score = (
-        energy_sim       * 0.25 +
-        valence_sim      * 0.20 +
-        acousticness_sim * 0.20 +
-        danceability_sim * 0.15 +
-        tempo_sim        * 0.08 +
-        mood_score       * 0.07 +
+        energy_sim       * 0.28 +
+        valence_sim      * 0.23 +
+        acousticness_sim * 0.22 +
+        danceability_sim * 0.17 +
+        tempo_sim        * 0.05 +
         genre_score      * 0.05
     )
 
+    # Step 4 — Build explanation reasons
     if genre_score == 1.0:
         reasons.append(f"matches your preferred genre ({song['genre']})")
-    if mood_score == 1.0:
-        reasons.append(f"matches your preferred mood ({song['mood']})")
     if energy_sim >= 0.85:
         reasons.append(f"energy is close to your preference ({song['energy']:.2f})")
     if valence_sim >= 0.85:
@@ -114,7 +118,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     if tempo_sim >= 0.85:
         reasons.append(f"tempo is close to your preference ({song['tempo_bpm']:.0f} BPM)")
 
-    # Step 4 — Behavioral adjustment (runs last so it doesn't corrupt feature math)
+    # Step 5 — Behavioral adjustment (runs last so it doesn't corrupt feature math)
     song_id = song["id"]
     if song_id in user_prefs.get("skipped_ids", []) and song_id in user_prefs.get("liked_ids", []):
         score *= 0.5
@@ -134,12 +138,16 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
 
 def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
     """
-    Score all songs and return the top-k as (song, score, explanation) tuples
+    Score all songs and return the top-k as (song, score, explanation) tuples.
     """
     scored = []
     seen = set()
     for song in songs:
-        key = (song["title"].lower(), song["artist"].lower())
+        key = (
+            song.get("title", "").lower(),
+            song.get("artist", "").lower(),
+            song.get("id")
+            )     
         if key in seen:
             continue
         seen.add(key)

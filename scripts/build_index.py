@@ -29,7 +29,7 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 def song_to_text(song: dict) -> str:
     return (
         f"{song['title']} by {song['artist']}. "
-        f"Genre: {song['genre']}. Mood: {song['mood']}. "
+        f"Genre: {song['genre']}. "
         f"Energy: {song['energy']}, Valence: {song['valence']}."
     )
 

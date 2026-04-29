@@ -78,7 +78,7 @@ def validate_output(
 
     summary = "\n".join(
         f"  - {r[0]['title']} by {r[0]['artist']} "
-        f"(genre: {r[0]['genre']}, mood: {r[0]['mood']}, "
+        f"(genre: {r[0]['genre']}, "
         f"score: {r[1]:.2f})"
         for r in results
     )

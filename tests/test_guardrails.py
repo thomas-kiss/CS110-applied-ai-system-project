@@ -17,7 +17,7 @@ def make_results(n=5):
     """Minimal result tuples matching (song_dict, score, explanation)."""
     return [
         (
-            {"title": f"Song {i}", "artist": "Artist", "genre": "pop", "mood": "happy"},
+            {"title": f"Song {i}", "artist": "Artist", "genre": "pop"},
             0.9 - i * 0.05,
             "some reason",
         )
@@ -90,12 +90,12 @@ def test_monkeypatched_low_confidence():
     original = guardrails.validate_output
 
     def mock_low(query, results, mock=False):
-        return 0.3, "results do not match the requested mood"
+        return 0.3, "results do not match the requested genre"
 
     guardrails.validate_output = mock_low
     try:
         confidence, flag = guardrails.validate_output("happy music", make_results())
         assert confidence < 0.6
-        assert "mood" in flag
+        assert "genre" in flag
     finally:
         guardrails.validate_output = original

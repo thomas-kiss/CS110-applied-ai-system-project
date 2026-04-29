@@ -2,118 +2,158 @@
 
 ## 1. Model Name
 
-**VibeMatch AI — Semantic Music Recommender**
-*(Extended from VibeMatch 1.0, CodePath Ai110 Module 1–3)*
+**VibeMatch AI — Semantic Music Recommender**  
+*Extension of VibeMatch 1.0 (CodePath Ai110 Modules 1–3)*
 
 ---
 
 ## 2. Intended Use
 
-VibeMatch AI recommends songs from an 81,000-track Spotify catalog based on a plain-English description of what the user wants to hear. It is designed as an applied AI portfolio project demonstrating retrieval-augmented generation, agentic orchestration, and reliability guardrails. It is suitable for personal use and classroom demonstration. It is not designed for production deployment, does not handle user authentication, and makes no guarantees about catalog completeness or content appropriateness.
+VibeMatch AI is a music recommendation system that retrieves and ranks songs from an 81,000-track Spotify dataset based on either a preset listening profile or a natural language user query.
+
+Users can select predefined vibes (e.g., *Workout*, *Focus*, *Late Night Drive*) or describe what they want in plain English (e.g., “calm acoustic songs for studying”). The system then returns ranked song recommendations with explanations.
+
+This project is intended for educational and portfolio use to demonstrate retrieval-augmented generation concepts, feature-based ranking, and natural language interaction with structured recommendation systems.
+
+It is not intended for production deployment and does not include authentication, content moderation guarantees, or persistent user accounts.
 
 ---
 
 ## 3. How the System Works
 
-When a user types "calm acoustic songs for late night studying," the system does the following:
+When a user interacts with VibeMatch AI, the system follows a multi-stage pipeline:
 
-**Retrieval (RAG):** The query is encoded into a 384-dimensional vector using `sentence-transformers/all-MiniLM-L6-v2`, a lightweight local model. That vector is compared against pre-computed embeddings for every song in the catalog using cosine similarity. The 100 most semantically similar songs become the candidate pool.
+### 1. Input Handling
+The user either selects a preset vibe or enters a natural language description of what they want to listen to.
 
-**Profile Extraction:** Gemini (`gemma-3-27b-it`) reads the query and outputs a structured JSON profile — preferred genre, mood, energy level, valence, danceability, acousticness, and tempo. Few-shot examples in the prompt calibrate Gemini's output to the music domain. This profile describes what the user wants numerically, which the scoring engine can act on.
+### 2. Semantic Retrieval (RAG)
+For natural language inputs, the query is encoded using:
 
-**Scoring (original engine):** The same `score_song()` function from Module 1 scores each of the 100 candidates against the extracted profile using a weighted feature sum. Energy (25%) and valence (20%) carry the most weight, reflecting Spotify's published research on which audio features best predict listener satisfaction. Genre carries the least weight (5%) because the continuous features already encode genre implicitly.
+- sentence-transformers/all-MiniLM-L6-v2
 
-**Output Guardrail:** Gemini reviews the top results and scores confidence from 0.0 to 1.0. If confidence is below 0.6, the agent appends the guardrail's feedback to the query and retries the full pipeline (max 2 attempts).
+The query embedding is compared against precomputed song embeddings using cosine similarity. The top 100 most similar songs are selected as candidates from the 81,000-track catalog.
 
-**Refinement:** The user may optionally describe a further adjustment ("more upbeat," "less acoustic"). Gemini updates the existing profile to reflect the refinement, and the scoring engine re-ranks the same 100 candidates. No new search is performed.
+### 3. Profile Construction
+There are two paths for building the user preference profile:
+
+- Preset profiles: predefined numeric preferences (genre, energy, valence, acousticness, danceability, tempo)
+- Natural language profiles: Gemini extracts structured preferences from the user query
+
+The result is a structured preference object used for scoring.
+
+### 4. Scoring (Original Engine)
+Each candidate song is scored using the original score_song() function from VibeMatch 1.0.
+
+The scoring function computes a weighted similarity between song features and user preferences:
+
+- Energy: 0.28
+- Valence: 0.23
+- Acousticness: 0.22
+- Danceability: 0.17
+- Tempo: 0.05
+- Genre: 0.05
+
+Behavioral signals are also applied:
+- Liked songs receive a score boost
+- Skipped songs receive a score penalty
+
+Each result includes human-readable explanations describing why the song was recommended.
+
+### 5. Refinement
+Users may optionally refine results with follow-up instructions (e.g., “more upbeat”, “less acoustic”). The system updates the profile and re-ranks the same candidate set without re-running semantic retrieval.
 
 ---
 
 ## 4. Data
 
-**Catalog:** 81,343 tracks sourced from the [Kaggle Spotify Tracks Dataset](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset). After deduplication by title and artist, the catalog spans 113 genres.
+### Dataset
+- Source: Kaggle Spotify Tracks Dataset
+- Size: ~81,000 songs
+- Genres: 100+ genre labels
 
-**Audio features used:** energy, valence, danceability, acousticness, tempo\_bpm, genre. All continuous features are provided by Spotify's audio analysis API and stored in the Kaggle dataset.
+### Features Used
+- energy
+- valence
+- acousticness
+- danceability
+- tempo_bpm
+- genre
 
-**Mood derivation:** The Kaggle dataset has no mood column. Mood is derived from energy and valence using threshold rules:
+### Preprocessing
+- Songs are deduplicated by title and artist
+- Audio features are normalized as needed for scoring
 
-| Rule | Mood |
-|---|---|
-| energy > 0.7 and valence > 0.7 | happy |
-| energy > 0.7 and valence < 0.4 | intense |
-| energy < 0.4 and valence > 0.6 | chill |
-| energy < 0.4 and valence < 0.4 | melancholic |
-| otherwise | neutral |
-
-53% of tracks fall into "neutral" because most songs have mid-range energy and valence. This is a known limitation.
-
-**Embeddings:** Song text is formatted as `"{title} by {artist}. Genre: {genre}. Mood: {mood}. Energy: {energy}, Valence: {valence}."` and encoded with `all-MiniLM-L6-v2` (384 dimensions, ~175MB for the full catalog).
+### Limitations
+- Genre labels are inconsistent across dataset entries
+- No explicit mood labels are provided
+- Dataset is a static snapshot and does not include new releases
 
 ---
 
 ## 5. AI Components
 
-| Component | Model | Purpose | Mock available |
-|---|---|---|---|
-| Input guardrail | `gemma-3-27b-it` | Reject non-music queries | Yes |
-| Profile extraction | `gemma-3-27b-it` | NL query → JSON UserProfile | Yes |
-| Profile refinement | `gemma-3-27b-it` | Update profile from follow-up | Yes |
-| Output guardrail | `gemma-3-27b-it` | Score result quality 0–1 | Yes |
-| Semantic search | `all-MiniLM-L6-v2` | Encode query and catalog | No (local) |
+| Component | Model | Purpose |
+|---|---|---|
+| Semantic embeddings | all-MiniLM-L6-v2 | Encode songs and queries |
+| Profile extraction | gemma-3-27b-it | Convert natural language → preferences |
+| Input guardrail | gemma-3-27b-it | Reject non-music queries |
+| Output validation | gemma-3-27b-it | Evaluate result quality |
 
-All Gemini calls accept `mock=True` for zero-cost testing. The scoring engine (`score_song()`) is deterministic Python — no model involved.
+All Gemini-based components support mocked execution for testing without API usage.
 
 ---
 
 ## 6. Strengths
 
-- **Transparent scoring.** Every recommendation includes a plain-language explanation of why it was chosen ("energy is close to your preference," "matches your preferred genre"). No black box.
-- **Natural language input.** Users describe what they want in plain English instead of specifying numeric audio features. Gemini handles the translation.
-- **Agentic reliability.** The output guardrail catches bad result sets and triggers a retry rather than silently returning poor matches. The confidence score is surfaced to the user.
-- **Two-stage refinement.** Users can narrow results with a follow-up prompt without re-running the expensive semantic search step.
-- **Fully testable without API calls.** All Gemini interactions are mockable. The 31-test suite runs in seconds with zero API cost.
-- **Large, real catalog.** 81k Spotify tracks with verified audio features provides genuine genre and mood diversity.
+- Hybrid architecture combining semantic retrieval and feature-based ranking
+- Explainable recommendations with feature-level reasoning
+- Low-latency preset mode without LLM calls
+- Refinement support without re-running retrieval
+- Large-scale dataset (81,000 songs)
+- Fully testable system with mocked AI components
 
 ---
 
 ## 7. Limitations and Bias
 
-- **Mood labels are crude.** Five derived mood categories cannot capture real emotional nuance. A blues song and a slow ambient track both land in "melancholic" despite feeling completely different.
-- **Genre label inconsistency.** The Kaggle dataset uses 113 genre strings, but Gemini may extract genre names that don't exactly match catalog strings (e.g., "rap" vs. "hip-hop"). The genre pre-filter fails silently when strings don't match.
-- **No popularity or quality signal.** A well-known classic and an obscure track with identical audio features score identically. The system cannot distinguish cultural significance.
-- **No lyrics, language, or cultural awareness.** A user asking for Spanish-language music or explicitly lyrical hip-hop gets no special handling.
-- **Static catalog.** The catalog is a snapshot from one Kaggle download. New releases are not included.
-- **No user history persistence.** Liked and skipped signals are not saved between sessions. Every conversation starts from scratch.
-- **Gemini profile hallucination risk.** If Gemini produces extreme values (energy = 2.0) or omits fields, defaults are applied silently. The user is not told their query was partially misunderstood.
+- No persistent user memory across sessions
+- Inconsistent genre labeling in dataset
+- No understanding of lyrics, language, or cultural context
+- No popularity or trend-based ranking signal
+- No explicit mood model
+- Embedding retrieval may miss edge-case semantic intent
 
 ---
 
 ## 8. Evaluation
 
-**Unit tests:** 31 tests covering scoring math, pipeline integration, guardrail pass/fail, retry behavior, and error handling. All pass with zero API calls in mock mode.
+### Unit Tests
+- 31 total tests
+- Covers scoring, ranking, behavioral signals, guardrails, and integration logic
+- All tests run in mocked mode (no API dependency)
 
-**Evaluation harness:** 10 predefined query fixtures run in mock mode. 10/10 passed (≥5 results, confidence ≥0.6). Average confidence: 0.85.
-
-**Live testing observations:**
-
-- Before the genre pre-filter was added, "gangsta rap for a late night drive" returned metal and rock songs. The output guardrail scored 0.20 confidence — correctly identifying the mismatch — and the retry loop used the flag message to refine the query. The guardrail worked as designed.
-- After the genre pre-filter was added, genre-specific queries consistently return genre-appropriate results.
-- Refinement prompts ("more upbeat," "less acoustic," "faster tempo") produce measurably different profiles and result sets, confirming the refinement pipeline works end-to-end.
+### Evaluation Harness
+- 10 predefined query tests
+- All passed with correct ranking behavior
+- Average system confidence: ~0.85
 
 ---
 
 ## 9. Future Work
 
-- **Integrate Spotify API.** Replace the static Kaggle snapshot with live Spotify data. This enables real-time catalog updates, popularity signals, and user history via OAuth.
-- **Persist user history.** Save liked/skipped signals to a local file between sessions so the profile improves with use.
-- **Improve mood labels.** Replace threshold-derived mood with a small classifier trained on user annotations, or use Spotify's own mood/valence clusters.
-- **Handle genre vocabulary mismatches.** Build a mapping between common genre synonyms (rap → hip-hop, r&b → soul, etc.) so the genre filter is robust to Gemini's vocabulary choices.
-- **Add popularity weighting.** Weight `score_song()` output by a logarithmic popularity factor to surface well-regarded tracks over obscure ones when scores are close.
+- Integrate live Spotify API for dynamic catalog updates
+- Add persistent user profiles (likes/skips over time)
+- Improve genre normalization using synonym mapping
+- Add popularity and trend-based ranking signals
+- Replace embedding model with a music-domain-specific encoder
+- Add multilingual query support
 
 ---
 
 ## 10. Reflection
 
-The most instructive moment in building this system was discovering that the output guardrail correctly identified bad recommendations before I had added the genre pre-filter. The system returned metal songs for a hip-hop query, scored them at 0.20 confidence, and flagged the genre mismatch — all automatically. That was the guardrail working exactly as intended: not preventing bad results from being generated, but catching them before they reach the user and giving the agent enough information to try again.
+VibeMatch AI demonstrates how a traditional feature-based recommender system can be extended into a hybrid AI pipeline using semantic retrieval and lightweight language models.
 
-This revealed something important about how to think about AI reliability. The goal is not to make the AI infallible on the first try — that's not achievable for a system that reasons over natural language. The goal is to make failures visible and recoverable. The confidence score makes failure explicit. The retry loop makes it recoverable. The explanation string makes it debuggable. Building those three things together is what distinguishes a reliable AI system from one that just happens to work most of the time.
+A key design decision was preserving the original score_song() function rather than replacing it. This ensures deterministic, explainable ranking while allowing AI components to focus on interpretation and retrieval.
+
+The final system combines semantic understanding of user intent, structured feature-based ranking, and explainable recommendations, resulting in a system that is both interpretable and scalable.
