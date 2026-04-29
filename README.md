@@ -20,6 +20,7 @@ The original `score_song()` and `recommend_songs()` functions are preserved as t
 
 ### Component Overview
 
+```mermaid
 graph TD
     A[User Input: Preset or NL Description] --> B{Input Guardrail}
     B -- "Invalid (Non-Music)" --> C[Reject Query]
@@ -42,6 +43,7 @@ graph TD
     L --> M[User Refinement Prompt]
     M --> N[Profile Update: Gemini]
     N --> I
+```
 
 Note on Genre Filtering: If the user’s profile specifies a preferred genre, the system prioritizes candidates matching that genre within the top 100 retrieved by semantic search. If at least 5 matches are found, only those are kept; otherwise, genre matches are simply placed first. This acts as a post-processing filter to ensure the vector search stays within the requested musical style.
 
