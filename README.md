@@ -8,9 +8,11 @@ This project extends **VibeMatch 1.0**, a content-based music recommender built 
 
 ## What This Project Does
 
-VibeMatch AI extends the original recommender into a full applied AI system. A user selects from a menu of preset listening profiles — or describes what they want in plain English — and the system returns tailored recommendations from an 81,000-track Spotify catalog. After seeing the initial results, the user can refine with a follow-up prompt ("more upbeat", "less acoustic") and the system re-ranks without re-searching.
+VibeMatch AI extends the original recommender into a full applied AI system. A user selects from a menu of preset listening profiles — or describes what they want in plain English — and the system returns tailored recommendations from an 81,000-track Spotify catalog.
 
-The original `score_song()` and `recommend_songs()` functions are preserved as the reranking engine. All new functionality — preset profiles, semantic search, natural language understanding, guardrails, and agentic retry — wraps around them.
+The original `score_song()` and `recommend_songs()` functions are preserved as the reranking engine. All higher-level functionality — presets, semantic retrieval, natural language parsing, and explanation generation — wraps around this deterministic scoring system.
+
+After the initial results, the user can optionally refine their request ("more upbeat", "less acoustic"), and the system re-ranks the same candidate set using updated preferences.
 
 ---
 
@@ -20,324 +22,161 @@ The original `score_song()` and `recommend_songs()` functions are preserved as t
 
 ### Component Overview
 
-```
 User selects preset OR describes vibe
     │
     ▼
-┌─────────────────────────────────────────────────────┐
-│  INPUT GUARDRAIL  (Gemini)                          │
-│  "Is this a music recommendation request?"          │
-│  Rejects non-music queries before anything runs.   │
-└────────────────────────┬────────────────────────────┘
-                         │ valid
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│  RAG RETRIEVAL  (sentence-transformers)             │
-│  Encodes query → cosine similarity search           │
-│  Returns 100 semantic candidates from 81k catalog   │
-└────────────────────────┬────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│  PROFILE  (preset or Gemini few-shot extraction)    │
-│  Preset: hardcoded values, no API call needed       │
-│  Custom: natural language → JSON UserProfile        │
-│  { preferred_genre, energy, valence, tempo, … }     │
-└────────────────────────┬────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│  GENRE FILTER                                       │
-│  Narrows candidates to genre matches when possible  │
-└────────────────────────┬────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│  SCORING ENGINE  (original score_song())            │
-│  Weighted feature sum                               │
-│  energy×0.28 + valence×0.23 + acousticness×0.22 +  │
-│  danceability×0.17 + tempo×0.05 + genre×0.05 +     │
-│  behavioral adjustment                              │
-└────────────────────────┬────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────┐
-│  OUTPUT GUARDRAIL  (Gemini)                         │
-│  Scores result quality 0.0–1.0                      │
-│  confidence < 0.6 → refine query and retry (max 2)  │
-└────────────────────────┬────────────────────────────┘
-                         │ confidence ≥ 0.6
-                         ▼
-                   Top 10 results
-                         │
-                         ▼
-              ┌──────────────────┐
-              │  User refinement │  "more upbeat" / "less acoustic"
-              │  (optional)      │
-              └────────┬─────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │  PROFILE REFINEMENT    │
-          │  Gemini updates profile│
-          │  Re-scores same 100    │
-          └────────────┬───────────┘
-                       │
-                       ▼
-                 Final Top 10
-```
+INPUT PARSING
+- Preset profile (hardcoded numeric values)
+- OR NLP → Gemini extracts UserProfile JSON
+
+    │
+    ▼
+RAG RETRIEVAL (sentence-transformers)
+Encodes query → cosine similarity search
+Returns top 100 candidates from 81k catalog
+
+    │
+    ▼
+SCORING ENGINE (score_song)
+Weighted feature similarity:
+energy, valence, acousticness, danceability, tempo, genre + behavioral signals
+
+    │
+    ▼
+RANKING (recommend_songs)
+Sorts by score, removes duplicates, returns top K
+
+    │
+    ▼
+Top 10 results
+
+    │
+    ▼
+User refinement ("more upbeat", "less acoustic")
+
+    │
+    ▼
+PROFILE REFINEMENT (optional Gemini step)
+Updates preferences → re-scores same candidate set
 
 ---
 
 ## Setup Instructions
 
-### Prerequisites
-
-- Python 3.10
-- A Google Gemini API key (`gemini-2.5-flash-preview-04-17`)
-- The Kaggle Spotify Tracks dataset ([download here](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset)) — save as `data/dataset.csv`
-
-### 1. Clone and create virtual environment
-
+### Install
 ```bash
-git clone https://github.com/your-username/MusicRecommender.git
-cd MusicRecommender
 python3.10 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-```
-
-### 2. Install dependencies
-
-```bash
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure API key
-
-```bash
-cp .env.example .env
-# Edit .env and add your Gemini API key:
-# GEMINI_API_KEY=your_key_here
-```
-
-### 4. Prepare the data catalog (run once)
-
-```bash
-python scripts/prepare_data.py --input data/dataset.csv
-```
-
-### 5. Build the embedding index (run once — takes 10–20 minutes)
-
-```bash
-python scripts/build_index.py
-```
-
-This generates `data/embeddings.npy` (~175MB). It is excluded from git and must be built locally.
-
-### 6. Run the AI agent
-
-```bash
-python src/main.py --agent
-```
-
-### 7. Run the original rule-based recommender
-
+### Run
 ```bash
 python src/main.py
 ```
 
-### 8. Run tests (zero API calls — fully mocked)
-
+### Test
 ```bash
-.venv/bin/python -m pytest tests/ -v
-```
-
-### 9. Run the evaluation harness
-
-```bash
-python tests/test_harness.py
+pytest tests/ -v
 ```
 
 ---
 
-## Sample Interactions
+## Key Features
 
-### Example 1 — Preset profile
+### Preset Profiles
+Predefined listening modes map directly to numeric feature vectors used by `score_song()`.
 
-```
-Choose a vibe:
-────────────────────────────────────────
-  1. Late Night Drive
-     Moody, mid-tempo tracks for cruising after dark
-  2. Gym / Workout
-     High-energy, driving tracks to push through a hard session
-  3. Focus / Study
-     Calm, low-distraction background music for deep work
-  4. Party Mode
-     Upbeat, danceable bangers to keep the energy high
-  5. Rainy Day / Melancholy
-     Soft, introspective songs for a quiet, reflective mood
-  6. Feel-Good Classics
-     Warm, familiar tracks with positive energy
-  7. Describe my own vibe...
-────────────────────────────────────────
-Enter a number (1–7): 1
-
-Loading profile: Late Night Drive...
-
-Top 10 for "Late Night Drive":
-Confidence: 0.78  |  Attempts: 1
-────────────────────────────────────────
- 1. N.Y. State of Mind — Nas
-    hip-hop | score: 0.84
- 2. C.R.E.A.M. — Wu-Tang Clan
-    hip-hop | score: 0.81
-...
-
-Refinement: make it more aggressive and faster
-
-Top 10 refined results:
-────────────────────────────────────────
- 1. Shook Ones Pt. II — Mobb Deep
-    hip-hop | score: 0.88
-    matches your preferred genre (hip-hop); energy is close to your preference (0.91)
-...
+### Natural Language Mode
+Gemini converts user text into structured preferences:
+```json
+{
+  "preferred_genre": "rap",
+  "preferred_energy": 0.9,
+  "preferred_valence": 0.6
+}
 ```
 
-### Example 2 — Custom vibe with refinement
+### Semantic Retrieval (RAG)
+Uses `sentence-transformers/all-MiniLM-L6-v2` to retrieve 100 candidates before scoring.
 
-```
-Enter a number (1–7): 7
+### Deterministic Scoring Engine
+- energy (0.28)
+- valence (0.23)
+- acousticness (0.22)
+- danceability (0.17)
+- tempo (0.05)
+- genre (0.05)
 
-Describe what you want to listen to: calm acoustic songs for late night studying
+### Explanation System
+Every recommendation includes human-readable reasons:
+- energy is close to your preference
+- matches your preferred genre
+- boosted/skipped behavior signals
 
-Top 10 for "calm acoustic songs for late night studying":
-Confidence: 0.82  |  Attempts: 1
-────────────────────────────────────────
- 1. Holocene — Bon Iver
-    indie | score: 0.89
-...
+---
 
-Refinement: something more instrumental, no vocals
+## Data
 
-Top 10 refined results:
-────────────────────────────────────────
- 1. Experience — Ludovico Einaudi
-    classical | score: 0.91
-    acousticness matches your taste (0.92); energy is close to your preference (0.18)
-...
-```
-
-### Example 3 — Invalid query rejected by guardrail
-
-```
-Describe what you want to listen to: write me a Python function
-
-Rejected: This does not appear to be a music recommendation request.
-```
+- 81,343 Spotify tracks (Kaggle dataset)
+- Features: energy, valence, danceability, acousticness, tempo, genre
+- No lyrics
+- No user persistence
 
 ---
 
 ## Design Decisions
 
-**Why preset profiles?**
-Preset profiles skip the Gemini profile extraction call entirely, saving an API call and making the system usable even when quota is limited. Each preset is a carefully tuned set of numeric feature values that the scoring engine can use directly. Users who want more control can still describe their own vibe and go through the full NL extraction flow.
+### Why keep scoring engine?
+Deterministic + testable + explainable ranking system.
 
-**Why remove mood?**
-The original mood labels (happy, intense, chill, melancholic, neutral) were derived from energy and valence thresholds — meaning mood carried no information that wasn't already captured by those two features. 53% of the catalog was labeled "neutral", making mood-based filtering nearly useless. Removing it simplifies the data pipeline, eliminates a column from every song dict, and redistributes its 7% weight to the features that actually drive result quality.
+### Why add RAG?
+Improves candidate quality without changing ranking logic.
 
-**Why keep the original scoring engine?**
-The weighted feature sum is a well-calibrated reranker. Its weights reflect which audio features best predict listener satisfaction. Adding semantic search on top improves candidate quality without replacing logic that was already working. The updated weights are: energy 28%, valence 23%, acousticness 22%, danceability 17%, tempo 5%, genre 5%.
+### Why presets?
+Bypass Gemini and ensure stable behavior.
 
-**Why sentence-transformers instead of a Gemini embedding call?**
-`all-MiniLM-L6-v2` runs locally, costs nothing, and produces high-quality semantic embeddings for music descriptions. Local embeddings are also reproducible — the same query always returns the same candidates.
-
-**Why few-shot prompting for profile extraction?**
-Four worked examples in the prompt calibrate Gemini's output to the music domain without any model training. Without examples, Gemini produces inconsistent JSON structures. With them, field names and value ranges are stable across diverse queries.
-
-**Why two-stage refinement instead of re-running the full pipeline?**
-Re-running the full pipeline on a refinement discards the 100 semantically relevant candidates already retrieved. Re-scoring the same pool with an updated profile is faster, cheaper, and keeps results anchored to the original intent.
-
-**Why retry on low confidence?**
-The output guardrail catches cases where the semantic search retrieved musically adjacent but mismatched songs. The retry appends the guardrail's flag message to the query before re-searching. In testing, one retry is usually sufficient to cross the 0.6 confidence threshold.
+### Why Gemini?
+Only used for natural language → structured preferences.
 
 ---
 
-## Testing Summary
+## Limitations
 
-**Unit tests — 30 tests, 0 failures, 0 API calls**
-
-All Gemini calls accept `mock=True`, which returns fixed fixtures. Tests cover:
-
-| Suite | Tests | What's covered |
-|---|---|---|
-| `test_recommender.py` | 12 | scoring math, sort order, behavioral boosts/penalties, conflict resolution |
-| `test_agent.py` | 10 | full pipeline, invalid query rejection, low-confidence retry, profile shape |
-| `test_guardrails.py` | 8 | input validation pass/fail, output confidence scoring, API error fallback |
-
-**Evaluation harness — 10/10 fixtures passed**
-
-10 predefined queries ran in mock mode. All returned ≥ 5 results with confidence ≥ 0.6. Average confidence: 0.85.
-
-**Live testing observations:**
-
-- Preset profiles return results immediately with no Gemini call for profile extraction, saving quota.
-- Genre-specific queries consistently return genre-appropriate results after the genre pre-filter.
-- The confidence guardrail correctly scored 0.20 for metal results returned against a rap query, demonstrating it catches bad outputs rather than silently accepting them.
-- Refinement prompts consistently shift audio feature targets in the expected direction.
+- Genre mismatch (rap vs hip-hop)
+- No popularity signal
+- No cultural awareness
+- Static dataset
+- No long-term memory
 
 ---
 
-## Reflection and Ethics
+## Example Output
 
-**Limitations and biases**
+Top 10 for "Gym / Workout"
 
-Mood labels have been removed from the system entirely — they were derived from energy and valence thresholds and carried no independent signal. Genre labels from the Kaggle dataset are inconsistent; the same song may appear under "hip-hop" in one version and "rap" in another, which the genre pre-filter cannot reconcile. The system has no concept of song quality or popularity — a well-known classic and an obscure track with identical audio features score identically.
+1. Bodywork — Stanton Warriors | score: 0.90  
+2. Work Your Body — Fast Eddie | score: 0.89  
+3. Body Back — Gryffin | score: 0.89  
 
-**Misuse potential**
+---
 
-The input guardrail prevents the system from being used as a general-purpose chatbot, but a determined user could frame off-topic requests as music queries. The system has no content moderation — it cannot filter for explicit content or age-appropriate material. Gemini could produce hallucinated JSON profiles that silently set extreme feature values, though defaults are applied if any field is missing.
+## Testing
 
-**Surprises during reliability testing**
-
-The most surprising result was how effectively the output guardrail detected bad recommendations — scoring 0.20 confidence for metal songs returned against a rap query, well below the 0.6 retry threshold. The guardrail's flag message was used as the retry signal to correct the query automatically.
-
-**Collaboration with AI**
-
-Claude was used throughout this project for architecture planning, code generation, and debugging. Helpful suggestions included the two-stage retrieval design, the preset profile menu, and removing mood labels as a redundant feature. One flawed suggestion was the initial monkeypatch strategy in the test suite, which patched `guardrails.validate_input` instead of `agent.validate_input`. Because `agent.py` imports the function directly, the patch had no effect and tests silently passed for the wrong reason — only fixed once the Python import binding behavior was understood.
+- 30+ unit tests
+- Fully mocked (no API calls)
+- Covers scoring, ranking, and behavior logic
 
 ---
 
 ## File Structure
 
-```
-MusicRecommender/
-  src/
-    recommender.py      — scoring engine (score_song, recommend_songs)
-    embedder.py         — RAG layer: load index, semantic search
-    agent.py            — orchestrator: preset profiles, profile extraction, retry loop
-    guardrails.py       — input/output validation via Gemini
-    main.py             — CLI entry points: preset menu + custom vibe input
-  scripts/
-    prepare_data.py     — one-time: clean Kaggle CSV → kaggle_tracks.csv
-    build_index.py      — one-time: encode catalog → embeddings.npy
-  data/
-    songs.csv           — original 20-track catalog (Module 1, unchanged)
-    kaggle_tracks.csv   — 81k-track production catalog (generated, not committed)
-    embeddings.npy      — 81k embeddings @ 384 dims (generated, not committed)
-  tests/
-    test_recommender.py — 12 unit tests for scoring engine
-    test_agent.py       — 10 integration tests for agentic pipeline
-    test_guardrails.py  — 8 tests for input/output guardrails
-    test_harness.py     — evaluation harness: 10 fixtures, pass/fail report
-  assets/
-    architecture.png    — system architecture diagram
-  requirements.txt
-  .env.example
-  README.md
-  model_card.md
-```
+src/
+  recommender.py
+  main.py
+  embedder.py
+  agent.py
 
----
-
-[**Model Card**](model_card.md)
+tests/
+  test_recommender.py
+  test_agent.py
