@@ -99,7 +99,7 @@ def main_agent() -> None:
     # ── Step 2: route to preset or natural language flow ──────────────────
     if choice in PRESET_PROFILES:
         selected = PRESET_PROFILES[choice]
-        query = selected["name"]           # used as the search query
+        query = f"{selected['name']} {selected['description']}"
         preset_profile = selected
         print(f"\nLoading profile: {selected['name']}...")
 

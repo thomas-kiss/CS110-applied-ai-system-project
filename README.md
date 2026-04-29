@@ -25,21 +25,21 @@ graph TD
     A[User Input: Preset or NL Description] --> B{Input Guardrail}
     B -- "Invalid (Non-Music)" --> C[Reject Query]
     B -- "Valid" --> D[RAG Retrieval: all-MiniLM-L6-v2]
-    
+
     D --> E[100 Semantic Candidates]
-    
+
     E --> F{Profile Extraction}
     F -- "Preset" --> G[Hardcoded Values]
     F -- "Custom" --> H[Gemini Few-Shot Extraction]
-    
+
     G --> I[Scoring Engine: original score_song]
     H --> I
-    
+
     I --> J{Output Guardrail}
     J -- "Confidence < 0.6" --> K[Agentic Retry: Refine & Search]
     K --> D
     J -- "Confidence >= 0.6" --> L[Top 10 Results]
-    
+
     L --> M[User Refinement Prompt]
     M --> N[Profile Update: Gemini]
     N --> I
@@ -63,7 +63,7 @@ Note on Genre Filtering: If the user’s profile specifies a preferred genre, th
 git clone https://github.com/your-username/MusicRecommender.git
 cd MusicRecommender
 python3.10 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
 ```
 
 ### 2. Install dependencies

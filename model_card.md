@@ -27,11 +27,13 @@ When a user interacts with VibeMatch AI, the system follows a multi-stage pipeli
 The user either selects a preset vibe or enters a natural language description of what they want to listen to.
 
 ### 2. Semantic Retrieval (RAG)
-For natural language inputs, the query is encoded using:
+The user query (or preset name/description) is encoded using:
 
 - sentence-transformers/all-MiniLM-L6-v2
 
-The query embedding is compared against precomputed song embeddings using cosine similarity. The top 100 most similar songs are selected as candidates from the 81,000-track catalog.
+The embedding is compared against precomputed song embeddings from the full catalog. The top 100 most similar songs are selected as candidates.
+
+Importantly, this retrieval step is driven only by the text query and is independent of the numeric user profile.
 
 ### 3. Profile Construction
 There are two paths for building the user preference profile:
@@ -39,7 +41,7 @@ There are two paths for building the user preference profile:
 - Preset profiles: predefined numeric preferences (genre, energy, valence, acousticness, danceability, tempo)
 - Natural language profiles: Gemini extracts structured preferences from the user query
 
-The result is a structured preference object used for scoring.
+The resulting profile is only used in the ranking stage, not retrieval.
 
 ### 4. Scoring (Original Engine)
 Each candidate song is scored using the original score_song() function from VibeMatch 1.0.
@@ -152,8 +154,8 @@ All Gemini-based components support mocked execution for testing without API usa
 
 ## 10. Reflection
 
-VibeMatch AI demonstrates how a traditional feature-based recommender system can be extended into a hybrid AI pipeline using semantic retrieval and lightweight language models.
+VibeMatch AI demonstrates a hybrid architecture where semantic retrieval and feature-based ranking are decoupled.
 
 A key design decision was preserving the original score_song() function rather than replacing it. This ensures deterministic, explainable ranking while allowing AI components to focus on interpretation and retrieval.
 
-The final system combines semantic understanding of user intent, structured feature-based ranking, and explainable recommendations, resulting in a system that is both interpretable and scalable.
+The final system combines semantic understanding of user intent with structured feature-based ranking, resulting in a system that is both interpretable and scalable.
