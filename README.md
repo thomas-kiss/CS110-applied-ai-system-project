@@ -2,7 +2,7 @@
 
 ## Original Project
 
-This project extends **VibeMatch 1.0**, a content-based music recommender built in Modules 1–3 of CodePath Ai110. The original system scored a hand-curated 20-track catalog against a hardcoded user profile using a six-feature weighted sum (energy, valence, acousticness, danceability, tempo, genre). It demonstrated the fundamentals of feature similarity scoring and behavioral signals (liked/skipped history), but required manually specifying numeric preferences and could only search 20 songs.
+This project extends **VibeMatch 1.0**, a content-based music recommender simulator built as part of CodePath Ai110 Spring 2026. [Repo](https://github.com/codepath/ai110-module3show-musicrecommendersimulation-starter) The original system scored a hand-curated 20-track catalog against a hardcoded user profile using a six-feature weighted sum (energy, valence, acousticness, danceability, tempo, genre). It demonstrated the fundamentals of feature similarity scoring and behavioral signals (liked/skipped history), but required manually specifying numeric preferences and could only search 20 songs.
 
 ---
 
